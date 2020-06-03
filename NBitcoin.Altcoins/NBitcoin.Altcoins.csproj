@@ -32,6 +32,9 @@
     <None Include="..\icon.png" Pack="true" PackagePath="\" />
 	  <Compile Remove="HashX11\NeoScrypt.cs" />
 	</ItemGroup>
+	<ItemGroup>
+	  <Folder Include="Horizen.Internals\" />
+	</ItemGroup>
 	<PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <DebugType>portable</DebugType>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
