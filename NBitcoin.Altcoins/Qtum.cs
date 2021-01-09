@@ -70,7 +70,7 @@ namespace NBitcoin.Altcoins
 				}
 			}
 
-			OutPoint prevoutStake = OutPoint.Zero;
+			OutPoint prevoutStake = new OutPoint(uint256.Zero, uint.MaxValue);
 
 			public OutPoint PrevoutStake
 			{
@@ -84,9 +84,9 @@ namespace NBitcoin.Altcoins
 				}
 			}
 
-			Script blockSignature = Script.Empty;
+			byte[] blockSignature = null;
 
-			public Script BlockSignature
+			public byte[] BlockSignature
 			{
 				get
 				{
@@ -103,7 +103,7 @@ namespace NBitcoin.Altcoins
 				stream.ReadWrite(ref hashStateRoot);
 				stream.ReadWrite(ref hashUtxoRoot);
 				stream.ReadWrite(ref prevoutStake);
-				stream.ReadWrite(ref blockSignature);
+				stream.ReadWriteAsVarString(ref blockSignature);
 			}
 		}
 
@@ -179,7 +179,7 @@ namespace NBitcoin.Altcoins
 			.SetMagic(0xd3a6cff1)
 			.SetPort(3888)
 			.SetRPCPort(3889)
-			.SetMaxP2PVersion(70017)
+			.SetMaxP2PVersion(70018)
 			.SetName("qtum-main")
 			.AddAlias("qtum-mainnet")
 			.AddDNSSeeds(new[]{
@@ -219,7 +219,7 @@ namespace NBitcoin.Altcoins
 			.SetMagic(0x0615220d)
 			.SetPort(13888)
 			.SetRPCPort(13889)
-			.SetMaxP2PVersion(70017)
+			.SetMaxP2PVersion(70018)
 			.SetName("qtum-test")
 			.AddAlias("qtum-testnet")
 			.AddDNSSeeds(new[]{
@@ -260,7 +260,7 @@ namespace NBitcoin.Altcoins
 			.SetMagic(0xe1c6ddfd)
 			.SetPort(23888)
 			.SetRPCPort(13889)
-			.SetMaxP2PVersion(70017)
+			.SetMaxP2PVersion(70018)
 			.SetName("qtum-reg")
 			.AddAlias("qtum-regtest")
 			.AddSeeds(new NetworkAddress[0])

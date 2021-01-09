@@ -10,6 +10,7 @@ using NBitcoin.JsonConverters;
 using Newtonsoft.Json;
 using Xunit;
 using Encoders = NBitcoin.DataEncoders.Encoders;
+using System.Threading;
 
 namespace NBitcoin.Tests
 {
@@ -30,9 +31,14 @@ namespace NBitcoin.Tests
 				Assert.Equal(network.Regtest.NetworkSet, network.Testnet.NetworkSet);
 				Assert.Equal(network.Mainnet.NetworkSet, network.Testnet.NetworkSet);
 				Assert.Equal(network, network.Testnet.NetworkSet);
+#pragma warning disable CS0618 // Type or member is obsolete
 				Assert.Equal(NetworkType.Mainnet, network.Mainnet.NetworkType);
 				Assert.Equal(NetworkType.Testnet, network.Testnet.NetworkType);
 				Assert.Equal(NetworkType.Regtest, network.Regtest.NetworkType);
+#pragma warning restore CS0618 // Type or member is obsolete
+				Assert.Equal(ChainName.Mainnet, network.Mainnet.ChainName);
+				Assert.Equal(ChainName.Testnet, network.Testnet.ChainName);
+				Assert.Equal(ChainName.Regtest, network.Regtest.ChainName);
 				Assert.Equal(network.CryptoCode, network.CryptoCode.ToUpperInvariant());
 				Assert.Equal(network.Mainnet, Network.GetNetwork(network.CryptoCode.ToLowerInvariant() + "-mainnet"));
 				Assert.Equal(network.Testnet, Network.GetNetwork(network.CryptoCode.ToLowerInvariant() + "-testnet"));
@@ -246,7 +252,7 @@ namespace NBitcoin.Tests
 				var addr2 = BitcoinAddress.Create(addr, builder.Network).ToString();
 				Assert.Equal(addr, addr2);
 
-				var address = (BitcoinAddress)new Key().PubKey.GetAddress(ScriptPubKeyType.Legacy, builder.Network);
+				var address = new Key().PubKey.GetAddress(ScriptPubKeyType.Legacy, builder.Network);
 
 				// Test normal address
 				var isValid = ((JObject)node.CreateRPCClient().SendCommand("validateaddress", address.ToString()).Result)["isvalid"].Value<bool>();

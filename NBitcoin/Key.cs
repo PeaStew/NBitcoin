@@ -178,7 +178,7 @@ namespace NBitcoin
 				throw new ArgumentNullException(nameof(messageBytes));
 			AssertNotDiposed();
 			byte[] data = Utils.FormatMessageForSigning(messageBytes);
-			var hash = Hashes.Hash256(data);
+			var hash = Hashes.DoubleSHA256(data);
 			return Convert.ToBase64String(SignCompact(hash, forceLowR));
 		}
 
@@ -434,8 +434,15 @@ namespace NBitcoin
 
 		public TransactionSignature Sign(uint256 hash, SigHash sigHash, bool useLowR = true)
 		{
+			return Sign(hash, new SigningOptions(sigHash, useLowR));
+		}
+		public TransactionSignature Sign(uint256 hash, SigningOptions signingOptions)
+		{
+			if (hash == null)
+				throw new ArgumentNullException(nameof(hash));
 			AssertNotDiposed();
-			return new TransactionSignature(Sign(hash, useLowR), sigHash);
+			signingOptions ??= new SigningOptions();
+			return new TransactionSignature(Sign(hash, signingOptions.EnforceLowR), signingOptions.SigHash);
 		}
 
 
@@ -476,29 +483,37 @@ namespace NBitcoin
 #endif
 		}
 
+		bool disposed = false;
 
-#if HAS_SPAN
-		void AssertNotDiposed()
-		{
-			if (_ECKey.cleared)
-				throw new ObjectDisposedException(nameof(NBitcoin.Key));
-		}
 		public void Dispose()
 		{
-			_ECKey.Clear();
+			Dispose(true);
+			GC.SuppressFinalize(this);
 		}
-#else
-		bool disposed = false;
+
 		void AssertNotDiposed()
 		{
 			if (disposed)
 				throw new ObjectDisposedException(nameof(NBitcoin.Key));
 		}
-		public void Dispose()
+
+		protected virtual void Dispose(bool disposing)
 		{
+			if (disposed)
+				return;
+			
+			if (disposing)
+			{
+				if (_ECKey is IDisposable keyMaterial)
+					keyMaterial.Dispose();
+			}
 			disposed = true;
 		}
-#endif
+
+		~Key()
+		{
+			Dispose(false);
+		}
 	}
 }
 #nullable disable

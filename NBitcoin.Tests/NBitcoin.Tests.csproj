@@ -32,7 +32,7 @@
 	<ItemGroup>
 		<PackageReference Include="FsCheck" Version="2.13.0" />
 		<PackageReference Include="FsCheck.Xunit" Version="2.13.0" />
-		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="16.3.0" />
+		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="16.8.3" />
 		<ProjectReference Include="..\NBitcoin\NBitcoin.csproj" />
 		<ProjectReference Include="..\NBitcoin.Altcoins\NBitcoin.Altcoins.csproj" />
 		<ProjectReference Include="..\NBitcoin.TestFramework\NBitcoin.TestFramework.csproj" />
@@ -149,6 +149,9 @@
     <Content Include="data\bip158_vectors.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
+    <Content Include="data\bip340_vectors.csv">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
   <ItemGroup>
     <Service Include="{82a7f48d-3b50-4b1e-b82e-3ada8210c358}" />
@@ -176,6 +179,11 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="xunit.runner.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="data\SHA3TestVectors.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>

@@ -257,7 +257,7 @@ namespace NBitcoin.Altcoins.Elements
 			if (AssetIssuance?.BlindingNonce != uint256.Zero)
 				return null;
 			var assetEntropy = new MerkleNode(
-				new MerkleNode(Hashes.Hash256(PrevOut.ToBytes())),
+				new MerkleNode(Hashes.DoubleSHA256(PrevOut.ToBytes())),
 				new MerkleNode(new uint256(AssetIssuance.Entropy.ToBytes())));
 			UpdateFastHash(assetEntropy);
 
@@ -592,7 +592,6 @@ namespace NBitcoin.Altcoins.Elements
 			return Asset;
 		}
 	}
-#pragma warning disable CS0618 // Type or member is obsolete
 
 	public class ElementsTransaction<TNetwork> : ElementsTransaction
 	{
@@ -744,7 +743,7 @@ namespace NBitcoin.Altcoins.Elements
 
 		public override uint256 GetSignatureHash(Script scriptCode, int nIn, SigHash nHashType, TxOut spentOutput, HashVersion sigversion, PrecomputedTransactionData precomputedTransactionData)
 		{
-			if (sigversion == HashVersion.Witness)
+			if (sigversion == HashVersion.WitnessV0)
 			{
 				var spentOutputElem = spentOutput as ElementsTxOut;
 				if (spentOutputElem == null)
@@ -796,7 +795,7 @@ namespace NBitcoin.Altcoins.Elements
 				Inputs[nIn].PrevOut.ReadWrite(sss);
 				sss.ReadWrite(scriptCode);
 				sss.ReadWrite(spentOutputElem.ConfidentialValue);
-				sss.ReadWrite((uint)Inputs[nIn].Sequence);
+				sss.ReadWrite(Inputs[nIn].Sequence);
 				if(this.Inputs[nIn] is ElementsTxIn elemInput && elemInput.HasAssetIssuance)
 				{
 					elemInput.AssetIssuance.ReadWrite(sss);
@@ -848,7 +847,7 @@ namespace NBitcoin.Altcoins.Elements
 				if (nInput != nIn && (fHashSingle || fHashNone))
 					stream.ReadWrite((uint)0);
 				else
-					stream.ReadWrite((uint)Inputs[nInput].Sequence);
+					stream.ReadWrite(Inputs[nInput].Sequence);
 				// Serialize the asset issuance object
 				if (Inputs[nInput] is ElementsTxIn elemInput && elemInput.HasAssetIssuance)
 				{
@@ -906,7 +905,7 @@ namespace NBitcoin.Altcoins.Elements
 
 		private uint256 GetIssuanceHash()
 		{
-			BitcoinStream ss = CreateHashWriter(HashVersion.Witness);
+			BitcoinStream ss = CreateHashWriter(HashVersion.WitnessV0);
 			for (int i = 0; i < this.Inputs.Count; i++)
 			{
 				if (Inputs[i] is ElementsTxIn elemInput && elemInput.HasAssetIssuance)
@@ -927,5 +926,4 @@ namespace NBitcoin.Altcoins.Elements
 			return preimage;
 		}
 	}
-#pragma warning restore CS0618 // Type or member is obsolete
 }

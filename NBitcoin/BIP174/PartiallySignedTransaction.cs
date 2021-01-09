@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -6,6 +7,7 @@ using NBitcoin.DataEncoders;
 using Newtonsoft.Json;
 using UnKnownKVMap = System.Collections.Generic.SortedDictionary<byte[], byte[]>;
 using NBitcoin.BuilderExtensions;
+using System.Diagnostics.CodeAnalysis;
 
 namespace NBitcoin
 {
@@ -87,7 +89,7 @@ namespace NBitcoin
 		/// <summary>
 		/// Use custom builder extensions to customize finalization
 		/// </summary>
-		public IEnumerable<BuilderExtension> CustomBuilderExtensions { get; set; }
+		public IEnumerable<BuilderExtension>? CustomBuilderExtensions { get; set; }
 
 		/// <summary>
 		/// Try to do anything that is possible to deduce PSBT information from input information
@@ -111,8 +113,10 @@ namespace NBitcoin
 	{
 		// Magic bytes
 		readonly static byte[] PSBT_MAGIC_BYTES = Encoders.ASCII.DecodeData("psbt\xff");
-		internal byte[] _XPubVersionBytes;
-		byte[] XPubVersionBytes => _XPubVersionBytes = _XPubVersionBytes ?? Network.GetVersionBytes(Base58Type.EXT_PUBLIC_KEY, false);
+		internal byte[]? _XPubVersionBytes;
+
+		byte[] XPubVersionBytes => _XPubVersionBytes = _XPubVersionBytes ?? Network.GetVersionBytes(Base58Type.EXT_PUBLIC_KEY, true)
+																		 ?? throw new InvalidOperationException("The network does not allow xpubs");
 		internal Transaction tx;
 
 		public SortedDictionary<BitcoinExtPubKey, RootedKeyPath> GlobalXPubs { get; } = new SortedDictionary<BitcoinExtPubKey, RootedKeyPath>(BitcoinExtPubKeyComparer.Instance);
@@ -149,7 +153,7 @@ namespace NBitcoin
 
 			return Load(raw, network);
 		}
-		public static bool TryParse(string hexOrBase64, Network network, out PSBT psbt)
+		public static bool TryParse(string hexOrBase64, Network network, [MaybeNullWhen(false)] out PSBT psbt)
 		{
 			if (hexOrBase64 == null)
 				throw new ArgumentNullException(nameof(hexOrBase64));
@@ -216,7 +220,6 @@ namespace NBitcoin
 			// It will be reassigned in `ReadWriteAsVarString` so no worry to assign 0 length array here.
 			byte[] k = new byte[0];
 			byte[] v = new byte[0];
-			var txFound = false;
 			stream.ReadWriteAsVarString(ref k);
 			while (k.Length != 0)
 			{
@@ -236,7 +239,6 @@ namespace NBitcoin
 							throw new FormatException("Malformed global tx. Unexpected size.");
 						if (tx.Inputs.Any(txin => txin.ScriptSig != Script.Empty || txin.WitScript != WitScript.Empty))
 							throw new FormatException("Malformed global tx. It should not contain any scriptsig or witness by itself");
-						txFound = true;
 						break;
 					case PSBTConstants.PSBT_GLOBAL_XPUB when XPubVersionBytes != null:
 						if (k.Length != 1 + XPubVersionBytes.Length + 74)
@@ -260,7 +262,7 @@ namespace NBitcoin
 				}
 				stream.ReadWriteAsVarString(ref k);
 			}
-			if (!txFound)
+			if (tx is null)
 				throw new FormatException("Invalid PSBT. No global TX");
 
 			int i = 0;
@@ -282,16 +284,18 @@ namespace NBitcoin
 			}
 			if (i != tx.Outputs.Count)
 				throw new FormatException("Invalid PSBT. Number of outputs does not match to the global tx");
+			// tx should never be null, but dotnet compiler complains...
+			tx = tx ?? Network.CreateTransaction();
 		}
 
-		public PSBT AddCoins(params ICoin[] coins)
+		public PSBT AddCoins(params ICoin?[] coins)
 		{
 			if (coins == null)
 				return this;
-			if (IsAllFinalized())
-				return this;
 			foreach (var coin in coins)
 			{
+				if (coin is null)
+					continue;
 				var indexedInput = this.Inputs.FindIndexedInput(coin.Outpoint);
 				if (indexedInput == null)
 					continue;
@@ -299,6 +303,8 @@ namespace NBitcoin
 			}
 			foreach (var coin in coins)
 			{
+				if (coin is null)
+					continue;
 				foreach (var output in this.Outputs)
 				{
 					if (output.ScriptPubKey == coin.TxOut.ScriptPubKey)
@@ -332,23 +338,14 @@ namespace NBitcoin
 				txsById.TryAdd(tx.GetHash(), tx);
 			foreach (var input in Inputs)
 			{
-				if (input.IsFinalized())
-					continue;
-				if (input.WitnessUtxo == null && txsById.TryGetValue(input.TxIn.PrevOut.Hash, out var tx))
+				if (txsById.TryGetValue(input.TxIn.PrevOut.Hash, out var tx))
 				{
 					if (input.TxIn.PrevOut.N >= tx.Outputs.Count)
 						continue;
 					var output = tx.Outputs[input.TxIn.PrevOut.N];
-					if (output.ScriptPubKey.IsScriptType(ScriptType.Witness) || input.RedeemScript?.IsScriptType(ScriptType.Witness) is true)
-					{
+					input.NonWitnessUtxo = tx;
+					if (input.GetCoin()?.IsMalleable is false)
 						input.WitnessUtxo = output;
-						input.NonWitnessUtxo = null;
-					}
-					else
-					{
-						input.WitnessUtxo = null;
-						input.NonWitnessUtxo = tx;
-					}
 				}
 			}
 			return this;
@@ -456,7 +453,7 @@ namespace NBitcoin
 			return this;
 		}
 
-		public bool TryFinalize(out IList<PSBTError> errors)
+		public bool TryFinalize([MaybeNullWhen(true)] out IList<PSBTError> errors)
 		{
 			var localErrors = new List<PSBTError>();
 			foreach (var input in Inputs)
@@ -479,7 +476,7 @@ namespace NBitcoin
 		{
 			return IsReadyToSign(out _);
 		}
-		public bool IsReadyToSign(out PSBTError[] errors)
+		public bool IsReadyToSign([MaybeNullWhen(true)] out PSBTError[] errors)
 		{
 			var errorList = new List<PSBTError>();
 			foreach (var input in Inputs)
@@ -556,7 +553,7 @@ namespace NBitcoin
 		/// <param name="accountKeyPath">The account key path (eg. [masterFP]/49'/0'/0')</param>
 		/// <param name="signingOptions">The signature options to use</param>
 		/// <returns>This PSBT</returns>
-		public PSBT SignAll(IHDScriptPubKey accountHDScriptPubKey, IHDKey accountKey, RootedKeyPath accountKeyPath, SigningOptions signingOptions)
+		public PSBT SignAll(IHDScriptPubKey accountHDScriptPubKey, IHDKey accountKey, RootedKeyPath? accountKeyPath, SigningOptions signingOptions)
 		{
 			if (accountKey == null)
 				throw new ArgumentNullException(nameof(accountKey));
@@ -579,7 +576,7 @@ namespace NBitcoin
 		/// <param name="accountKeyPath">The account key path (eg. [masterFP]/49'/0'/0')</param>
 		/// <param name="sigHash">The SigHash</param>
 		/// <returns>This PSBT</returns>
-		public PSBT SignAll(IHDScriptPubKey accountHDScriptPubKey, IHDKey accountKey, RootedKeyPath accountKeyPath, SigHash sigHash = SigHash.All)
+		public PSBT SignAll(IHDScriptPubKey accountHDScriptPubKey, IHDKey accountKey, RootedKeyPath? accountKeyPath, SigHash sigHash = SigHash.All)
 		{
 			return SignAll(accountHDScriptPubKey, accountKey, accountKeyPath, Normalize(new SigningOptions(sigHash)));
 		}
@@ -612,7 +609,7 @@ namespace NBitcoin
 		/// </summary>
 		/// <param name="estimatedFeeRate"></param>
 		/// <returns>True if could get the estimated fee rate</returns>
-		public bool TryGetEstimatedFeeRate(out FeeRate estimatedFeeRate)
+		public bool TryGetEstimatedFeeRate([MaybeNullWhen(false)] out FeeRate estimatedFeeRate)
 		{
 			if (IsAllFinalized())
 			{
@@ -735,9 +732,18 @@ namespace NBitcoin
 
 		private IEnumerable<ICoin> GetAllCoins()
 		{
-			return this.Inputs.Select(i => i.GetSignableCoin() ?? i.GetCoin()).Where(c => c != null).ToArray();
+			foreach (var c in this.Inputs.Select(i => i.GetSignableCoin() ?? i.GetCoin()))
+			{
+				if (c is null)
+					continue;
+				yield return c;
+			}
 		}
-
+		/// <summary>
+		/// Extract the fully signed transaction from the PSBT
+		/// </summary>
+		/// <returns>The fully signed transaction</returns>
+		/// <exception cref="System.InvalidOperationException">PSBTInputs are not all finalized</exception>
 		public Transaction ExtractTransaction()
 		{
 			if (!this.CanExtractTransaction())
@@ -779,35 +785,37 @@ namespace NBitcoin
 		/// </summary>
 		/// <param name="hash">The hash once fully signed</param>
 		/// <returns>True if we can know the expected hash. False if we can't (unsigned non-segwit).</returns>
-		public bool TryGetFinalizedHash(out uint256 hash)
+		public bool TryGetFinalizedHash([MaybeNullWhen(false)] out uint256 hash)
 		{
 			var tx = GetGlobalTransaction();
 			for (int i = 0; i < Inputs.Count; i++)
 			{
+				var utxo = Inputs[i].GetTxOut();
 				if (Inputs[i].IsFinalized())
 				{
 					tx.Inputs[i].ScriptSig = Inputs[i].FinalScriptSig ?? Script.Empty;
-					tx.Inputs[i].WitScript = Inputs[i].WitnessScript ?? Script.Empty;
+					tx.Inputs[i].WitScript = Inputs[i].FinalScriptWitness ?? Script.Empty;
+					if (tx.Inputs[i].ScriptSig == Script.Empty
+						&& (utxo is null || utxo.ScriptPubKey.IsScriptType(ScriptType.P2SH)))
+					{
+						hash = null;
+						return false;
+					}
 				}
-				else if (Inputs[i].NonWitnessUtxo != null)
+				else if (utxo is null ||
+						!Network.Consensus.SupportSegwit)
 				{
 					hash = null;
 					return false;
 				}
-				else if (Network.Consensus.SupportSegwit &&
-					Inputs[i].WitnessUtxo is TxOut utxo &&
-					utxo.ScriptPubKey.IsScriptType(ScriptType.P2SH) &&
-					Inputs[i].GetSignableCoin() is ScriptCoin sc &&
-					sc.GetP2SHRedeem() is Script p2shRedeem)
+				else if (utxo.ScriptPubKey.IsScriptType(ScriptType.P2SH) &&
+					Inputs[i].RedeemScript is Script p2shRedeem &&
+					(p2shRedeem.IsScriptType(ScriptType.P2WSH) ||
+					 p2shRedeem.IsScriptType(ScriptType.P2WPKH)))
 				{
 					tx.Inputs[i].ScriptSig = PayToScriptHashTemplate.Instance.GenerateScriptSig(null as byte[][], p2shRedeem);
 				}
-				else if (Network.Consensus.SupportSegwit &&
-					Inputs[i].WitnessUtxo is TxOut utxo2 &&
-					!utxo2.ScriptPubKey.IsScriptType(ScriptType.P2SH))
-				{
-				}
-				else
+				else if (utxo.ScriptPubKey.IsMalleable)
 				{
 					hash = null;
 					return false;
@@ -1065,7 +1073,7 @@ namespace NBitcoin
 		/// <param name="accountKey">The account key that will be used to sign (ie. 49'/0'/0')</param>
 		/// <param name="accountKeyPath">The account key path</param>
 		/// <returns>The balance change</returns>
-		public Money GetBalance(ScriptPubKeyType scriptPubKeyType, IHDKey accountKey, RootedKeyPath accountKeyPath = null)
+		public Money GetBalance(ScriptPubKeyType scriptPubKeyType, IHDKey accountKey, RootedKeyPath? accountKeyPath = null)
 		{
 			if (accountKey == null)
 				throw new ArgumentNullException(nameof(accountKey));
@@ -1080,7 +1088,7 @@ namespace NBitcoin
 		/// <param name="accountKey">The account key that will be used to sign (ie. 49'/0'/0')</param>
 		/// <param name="accountKeyPath">The account key path</param>
 		/// <returns>The balance change</returns>
-		public Money GetBalance(IHDScriptPubKey accountHDScriptPubKey, IHDKey accountKey, RootedKeyPath accountKeyPath = null)
+		public Money GetBalance(IHDScriptPubKey accountHDScriptPubKey, IHDKey accountKey, RootedKeyPath? accountKeyPath = null)
 		{
 			if (accountHDScriptPubKey == null)
 				throw new ArgumentNullException(nameof(accountHDScriptPubKey));
@@ -1103,7 +1111,7 @@ namespace NBitcoin
 		/// <param name="accountKey">The account key that will be used to sign (ie. 49'/0'/0')</param>
 		/// <param name="accountKeyPath">The account key path</param>
 		/// <returns>Inputs with HD keys matching masterFingerprint and account key</returns>
-		public IEnumerable<PSBTCoin> CoinsFor(IHDScriptPubKey accountHDScriptPubKey, IHDKey accountKey, RootedKeyPath accountKeyPath = null)
+		public IEnumerable<PSBTCoin> CoinsFor(IHDScriptPubKey accountHDScriptPubKey, IHDKey accountKey, RootedKeyPath? accountKeyPath = null)
 		{
 			if (accountKey == null)
 				throw new ArgumentNullException(nameof(accountKey));
@@ -1122,7 +1130,7 @@ namespace NBitcoin
 		/// <param name="accountKey">The account key that will be used to sign (ie. 49'/0'/0')</param>
 		/// <param name="accountKeyPath">The account key path</param>
 		/// <returns>HD Keys matching master root key</returns>
-		public IEnumerable<PSBTHDKeyMatch> HDKeysFor(IHDScriptPubKey accountHDScriptPubKey, IHDKey accountKey, RootedKeyPath accountKeyPath = null)
+		public IEnumerable<PSBTHDKeyMatch> HDKeysFor(IHDScriptPubKey accountHDScriptPubKey, IHDKey accountKey, RootedKeyPath? accountKeyPath = null)
 		{
 			if (accountKey == null)
 				throw new ArgumentNullException(nameof(accountKey));
@@ -1139,7 +1147,7 @@ namespace NBitcoin
 		/// <param name="accountKey">The account key that will be used to sign (ie. 49'/0'/0')</param>
 		/// <param name="accountKeyPath">The account key path</param>
 		/// <returns>HD Keys matching master root key</returns>
-		public IEnumerable<PSBTHDKeyMatch> HDKeysFor(IHDKey accountKey, RootedKeyPath accountKeyPath = null)
+		public IEnumerable<PSBTHDKeyMatch> HDKeysFor(IHDKey accountKey, RootedKeyPath? accountKeyPath = null)
 		{
 			if (accountKey == null)
 				throw new ArgumentNullException(nameof(accountKey));
@@ -1164,7 +1172,7 @@ namespace NBitcoin
 		/// <param name="masterKey">The master key of the keypaths</param>
 		/// <param name="paths">The path of the public keys with their expected scriptPubKey</param>
 		/// <returns>This PSBT</returns>
-		public PSBT AddKeyPath(IHDKey masterKey, params Tuple<KeyPath, Script>[] paths)
+		public PSBT AddKeyPath(IHDKey masterKey, params Tuple<KeyPath, Script?>[] paths)
 		{
 			if (masterKey == null)
 				throw new ArgumentNullException(nameof(masterKey));
@@ -1199,7 +1207,7 @@ namespace NBitcoin
 		/// <param name="rootedKeyPath">The keypath to this public key</param>
 		/// <param name="scriptPubKey">A specific scriptPubKey this pubkey is involved with</param>
 		/// <returns>This PSBT</returns>
-		public PSBT AddKeyPath(PubKey pubkey, RootedKeyPath rootedKeyPath, Script scriptPubKey)
+		public PSBT AddKeyPath(PubKey pubkey, RootedKeyPath rootedKeyPath, Script? scriptPubKey)
 		{
 			if (pubkey == null)
 				throw new ArgumentNullException(nameof(pubkey));
@@ -1287,3 +1295,4 @@ namespace NBitcoin
 		}
 	}
 }
+#nullable disable

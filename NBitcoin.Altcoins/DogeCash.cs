@@ -56,9 +56,7 @@ namespace NBitcoin.Altcoins
 
 		public class DogeCashBlock : Block
 		{
-#pragma warning disable CS0612 // Type or member is obsolete
 			public DogeCashBlock(DogeCashBlockHeader h) : base(h)
-#pragma warning restore CS0612 // Type or member is obsolete
 			{
 			}
 
@@ -72,13 +70,6 @@ namespace NBitcoin.Altcoins
 		protected override void PostInit()
 		{
 			RegisterDefaultCookiePath("DOGEC");
-		}
-
-		private static uint256 GetPoWHash(BlockHeader header)
-		{
-			var headerBytes = header.ToBytes();
-			var h = SCrypt.ComputeDerivedKey(headerBytes, headerBytes, 1024, 1, 1, null, 32);
-			return new uint256(h);
 		}
 
 		protected override NetworkBuilder CreateMainnet()
@@ -114,7 +105,7 @@ namespace NBitcoin.Altcoins
 				.SetMagic(0x191643a0)
 				.SetPort(56740)
 				.SetRPCPort(51573)
-				.SetMaxP2PVersion(70917)
+				.SetMaxP2PVersion(70920)
 				.SetName("DogeCash-main")
 				.AddAlias("DogeCash-mainnet")
 				.AddDNSSeeds(new[]
@@ -138,7 +129,7 @@ namespace NBitcoin.Altcoins
 					MajorityEnforceBlockUpgrade = 51,
 					MajorityRejectBlockOutdated = 75,
 					MajorityWindow = 100,
-					BIP34Hash = new uint256("0x00"),
+					BIP34Hash = new uint256("0000000000000000000000000000000000000000000000000000000000000000"),
 					PowLimit = new Target(0 >> 1),
 					MinimumChainWork = new uint256("0000000000000000000000000000000000000000000000000000000000100010"),
 					PowTargetTimespan = TimeSpan.FromSeconds(24 * 60 * 60),
@@ -162,7 +153,7 @@ namespace NBitcoin.Altcoins
 				.SetMagic(0x191643a0)
 				.SetPort(56740)
 				.SetRPCPort(51375)
-				.SetMaxP2PVersion(70917)
+				.SetMaxP2PVersion(70920)
 				.SetName("DogeCash-test")
 				.AddAlias("DogeCash-testnet")
 				.AddSeeds(new NetworkAddress[0])
@@ -204,7 +195,7 @@ namespace NBitcoin.Altcoins
 				.SetMagic(0x191643a0)
 				.SetPort(56740)
 				.SetRPCPort(51478)
-				.SetMaxP2PVersion(70917)
+				.SetMaxP2PVersion(70920)
 				.SetName("DogeCash-reg")
 				.AddAlias("DogeCash-regtest")
 				.AddDNSSeeds(new DNSSeedData[0])

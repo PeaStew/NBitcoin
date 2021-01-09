@@ -5,6 +5,7 @@ using NBitcoin.Protocol;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -74,13 +75,14 @@ namespace NBitcoin.RPC
 	}
 
 	/*
-		Category			Name						Implemented 
+		Category			Name						Implemented
 		------------------ --------------------------- -----------------------
 
 		------------------ Wallet
 		wallet			 addmultisigaddress
-		wallet			 backupwallet				 Yes
-		wallet			 dumpprivkey				  Yes
+		wallet			 backupwallet				Yes
+		wallet			 dumpprivkey				Yes
+		wallet			 createwallet				Yes
 		wallet			 dumpwallet
 		wallet			 encryptwallet
 		wallet			 getaccountaddress			Yes
@@ -91,7 +93,7 @@ namespace NBitcoin.RPC
 		wallet			 getnewaddress
 		wallet			 getrawchangeaddress
 		wallet			 getreceivedbyaccount
-		wallet			 getreceivedbyaddress		 Yes
+		wallet			 getreceivedbyaddress		Yes
 		wallet			 gettransaction
 		wallet			 getunconfirmedbalance
 		wallet			 getwalletinfo
@@ -99,15 +101,16 @@ namespace NBitcoin.RPC
 		wallet			 importwallet
 		wallet			 importaddress				Yes
 		wallet			 keypoolrefill
-		wallet			 listaccounts				 Yes
-		wallet			 listaddressgroupings		 Yes
+		wallet			 listaccounts				Yes
+		wallet			 listaddressgroupings		Yes
 		wallet			 listlockunspent
 		wallet			 listreceivedbyaccount
 		wallet			 listreceivedbyaddress
 		wallet			 listsinceblock
 		wallet			 listtransactions
-		wallet			 listunspent				  Yes
-		wallet			 lockunspent				  Yes
+		wallet			 listunspent				Yes
+		wallet			 loadwallet					Yes
+		wallet			 lockunspent				Yes
 		wallet			 move
 		wallet			 sendfrom
 		wallet			 sendmany
@@ -115,16 +118,110 @@ namespace NBitcoin.RPC
 		wallet			 setaccount
 		wallet			 settxfee
 		wallet			 signmessage
+		wallet			 unloadwallet				Yes
 		wallet			 walletlock
 		wallet			 walletpassphrasechange
-		wallet			 walletpassphrase			yes
+		wallet			 walletpassphrase			Yes
 		wallet			 walletprocesspsbt
 		wallet			 walletcreatefundedpsbt
 	*/
+
 	public partial class RPCClient
 	{
-		// backupwallet 
+		#nullable enable
 
+		public RPCClient GetWallet(string walletName)
+		{
+			RPCCredentialString credentialString;;
+
+			if (_BatchedRequests is null)
+			{
+				credentialString = RPCCredentialString.Parse(CredentialString.ToString());
+			}
+			else
+			{
+				if (string.IsNullOrEmpty(CredentialString.WalletName))
+				{
+					credentialString = CredentialString;
+				}
+				else
+				{
+					throw new InvalidOperationException("Batch RPC client already has a wallet assigned.");
+				}
+			}
+			credentialString.WalletName = walletName;
+
+			return new RPCClient(credentialString, Address, Network)
+			{
+				_BatchedRequests = _BatchedRequests,
+				Capabilities = Capabilities,
+				RequestTimeout = RequestTimeout,
+				_HttpClient = _HttpClient,
+				AllowBatchFallback = AllowBatchFallback
+			};
+		}
+
+		public async Task<RPCClient> CreateWalletAsync(string walletNameOrPath, CreateWalletOptions? options = null)
+		{
+			if (string.IsNullOrEmpty(walletNameOrPath)) throw new ArgumentNullException(nameof(walletNameOrPath));
+
+			var parameters = new Dictionary<string, object>();
+			parameters.Add("wallet_name", walletNameOrPath);
+			if (options is { })
+			{
+				if (options.DisablePrivateKeys is { })
+					parameters.Add("disable_private_keys", options.DisablePrivateKeys.ToString());
+				if (options.Blank is { })
+					parameters.Add("blank", options.Blank.ToString());
+				if (options.Passphrase is string passphrase && passphrase.Length > 0)
+					parameters.Add("passphrase", passphrase);
+				if (options.AvoidReuse is { })
+					parameters.Add("avoid_reuse", options.AvoidReuse.ToString());
+				if (options.AvoidReuse is { })
+					parameters.Add("descriptors", options.Descriptors.ToString());
+				if (options.LoadOnStartup is bool loadOnStartup)
+					parameters.Add("load_on_startup", loadOnStartup.ToString());
+			}
+			var result = await SendCommandWithNamedArgsAsync(RPCOperations.createwallet.ToString(), parameters).ConfigureAwait(false);
+			return GetWallet(result.Result.Value<string>("name"));
+		}
+
+		public RPCClient CreateWallet(string walletNameOrPath, CreateWalletOptions? options = null)
+		{
+			if (string.IsNullOrEmpty(walletNameOrPath)) throw new ArgumentNullException(nameof(walletNameOrPath));
+
+			return CreateWalletAsync(walletNameOrPath, options).GetAwaiter().GetResult();
+		}
+
+		public async Task<RPCClient> LoadWalletAsync(string filename, bool? loadOnStartup = null)
+		{
+			if (string.IsNullOrEmpty(filename)) throw new ArgumentNullException(nameof(filename));
+
+			var result =  await SendCommandAsync(RPCOperations.loadwallet, filename, loadOnStartup).ConfigureAwait(false);
+			return GetWallet(result.Result.Value<string>("name"));
+		}
+
+		public RPCClient LoadWallet(string filename, bool? loadOnStartup = null)
+		{
+			if (string.IsNullOrEmpty(filename)) throw new ArgumentNullException(nameof(filename));
+
+			var result = SendCommandAsync(RPCOperations.loadwallet, filename, loadOnStartup).GetAwaiter().GetResult();
+			return GetWallet(result.Result.Value<string>("name"));
+		}
+
+		public async Task UnloadAsync(bool? loadOnStartup = null)
+		{
+			var result = await SendCommandAsync(RPCOperations.loadwallet, loadOnStartup).ConfigureAwait(false);
+		}
+
+		public void Unload(bool? loadOnStartup = null)
+		{
+			SendCommandAsync(RPCOperations.unloadwallet, loadOnStartup).GetAwaiter().GetResult();
+		}
+
+		#nullable restore
+
+		// backupwallet
 		public void BackupWallet(string path)
 		{
 			if (string.IsNullOrEmpty(path))
@@ -258,7 +355,7 @@ namespace NBitcoin.RPC
 		// getreceivedbyaddress
 
 		/// <summary>
-		/// Returns the total amount received by the specified address in transactions with at 
+		/// Returns the total amount received by the specified address in transactions with at
 		/// least one (default) confirmations. It does not count coinbase transactions.
 		/// </summary>
 		/// <param name="address">The address whose transactions should be tallied.</param>
@@ -270,7 +367,7 @@ namespace NBitcoin.RPC
 		}
 
 		/// <summary>
-		/// Returns the total amount received by the specified address in transactions with at 
+		/// Returns the total amount received by the specified address in transactions with at
 		/// least one (default) confirmations. It does not count coinbase transactions.
 		/// </summary>
 		/// <param name="address">The address whose transactions should be tallied.</param>
@@ -282,14 +379,14 @@ namespace NBitcoin.RPC
 		}
 
 		/// <summary>
-		/// Returns the total amount received by the specified address in transactions with the 
+		/// Returns the total amount received by the specified address in transactions with the
 		/// specified number of confirmations. It does not count coinbase transactions.
 		/// </summary>
 		/// <param name="confirmations">
-		/// The minimum number of confirmations an externally-generated transaction must have before 
-		/// it is counted towards the balance. Transactions generated by this node are counted immediately. 
-		/// Typically, externally-generated transactions are payments to this wallet and transactions 
-		/// generated by this node are payments to other wallets. Use 0 to count unconfirmed transactions. 
+		/// The minimum number of confirmations an externally-generated transaction must have before
+		/// it is counted towards the balance. Transactions generated by this node are counted immediately.
+		/// Typically, externally-generated transactions are payments to this wallet and transactions
+		/// generated by this node are payments to other wallets. Use 0 to count unconfirmed transactions.
 		/// Default is 1.
 		/// </param>
 		/// <returns>The number of bitcoins received by the address, excluding coinbase transactions. May be 0.</returns>
@@ -300,14 +397,14 @@ namespace NBitcoin.RPC
 		}
 
 		/// <summary>
-		/// Returns the total amount received by the specified address in transactions with the 
+		/// Returns the total amount received by the specified address in transactions with the
 		/// specified number of confirmations. It does not count coinbase transactions.
 		/// </summary>
 		/// <param name="confirmations">
-		/// The minimum number of confirmations an externally-generated transaction must have before 
-		/// it is counted towards the balance. Transactions generated by this node are counted immediately. 
-		/// Typically, externally-generated transactions are payments to this wallet and transactions 
-		/// generated by this node are payments to other wallets. Use 0 to count unconfirmed transactions. 
+		/// The minimum number of confirmations an externally-generated transaction must have before
+		/// it is counted towards the balance. Transactions generated by this node are counted immediately.
+		/// Typically, externally-generated transactions are payments to this wallet and transactions
+		/// generated by this node are payments to other wallets. Use 0 to count unconfirmed transactions.
 		/// Default is 1.
 		/// </param>
 		/// <returns>The number of bitcoins received by the address, excluding coinbase transactions. May be 0.</returns>
@@ -393,41 +490,58 @@ namespace NBitcoin.RPC
 
 
 		// importmulti
+		public void ImportMulti(ImportMultiAddress[] addresses, bool rescan) =>
+			ImportMulti(addresses, rescan, null);
 
-		public void ImportMulti(ImportMultiAddress[] addresses, bool rescan)
+		#nullable enable
+		public void ImportMulti(ImportMultiAddress[] addresses, bool rescan, ISigningRepository? signingRepository)
 		{
-			ImportMultiAsync(addresses, rescan).GetAwaiter().GetResult();
+			ImportMultiAsync(addresses, rescan, signingRepository).GetAwaiter().GetResult();
 		}
-
-
-		JsonSerializerSettings _JsonSerializer;
-		JsonSerializerSettings JsonSerializerSettings
-		{
-			get
-			{
-				if (_JsonSerializer == null)
-				{
-					var seria = new JsonSerializerSettings();
-					Serializer.RegisterFrontConverters(seria, Network);
-					_JsonSerializer = seria;
-				}
-				return _JsonSerializer;
-			}
-		}
-		public async Task ImportMultiAsync(ImportMultiAddress[] addresses, bool rescan)
+		public Task ImportMultiAsync(ImportMultiAddress[] addresses, bool rescan)
+			=> ImportMultiAsync(addresses, rescan, null);
+		/// <summary>
+		///
+		/// </summary>
+		/// <param name="addresses"></param>
+		/// <param name="rescan"></param>
+		/// <param name="signingRepository">If you specify this, This method tries to serialize OutputDescriptor with the private key (If there is any entry in the repository).</param>
+		/// <returns></returns>
+		/// <exception cref="RPCException"></exception>
+		public async Task ImportMultiAsync(ImportMultiAddress[] addresses, bool rescan, ISigningRepository? signingRepository)
 		{
 			var parameters = new List<object>();
 
 			var array = new JArray();
 			parameters.Add(array);
 			var seria = JsonSerializer.CreateDefault(JsonSerializerSettings);
+			// -- replace json converter with the one with new `ISigningRepository`
+			var oldConverter =
+				seria.Converters
+					.FirstOrDefault(converter => converter is OutputDescriptorJsonConverter);
+			if (oldConverter != null)
+			{
+				seria.Converters.Remove(oldConverter);
+			}
+
+			signingRepository ??= new FlatSigningRepository();
+			foreach (var key in addresses.Where(x => x.Keys != null).SelectMany(x => x.Keys))
+			{
+				if (key != null)
+				{
+					signingRepository.SetSecret(key.PubKeyHash, key);
+				}
+			}
+			seria.Converters.Add(new OutputDescriptorJsonConverter(false, signingRepository));
+
+			// -- --
 			foreach (var addr in addresses)
 			{
 				var obj = JObject.FromObject(addr, seria);
 				if (obj["timestamp"] == null || obj["timestamp"].Type == JTokenType.Null)
 					obj["timestamp"] = "now";
 				else
-					obj["timestamp"] = new JValue(Utils.DateTimeToUnixTime(addr.Timestamp.Value));
+					obj["timestamp"] = new JValue(Utils.DateTimeToUnixTime(addr.Timestamp!.Value));
 				array.Add(obj);
 			}
 
@@ -448,11 +562,28 @@ namespace NBitcoin.RPC
 			}
 		}
 
+		#nullable  disable
+
+
+		JsonSerializerSettings _JsonSerializer;
+		JsonSerializerSettings JsonSerializerSettings
+		{
+			get
+			{
+				if (_JsonSerializer == null)
+				{
+					var seria = new JsonSerializerSettings();
+					Serializer.RegisterFrontConverters(seria, Network);
+					_JsonSerializer = seria;
+				}
+				return _JsonSerializer;
+			}
+		}
 
 		// listaccounts
 
 		/// <summary>
-		/// Lists accounts and their balances, with the default number of confirmations for balances (1), 
+		/// Lists accounts and their balances, with the default number of confirmations for balances (1),
 		/// and not including watch only addresses (default false).
 		/// </summary>
 		public IEnumerable<RPCAccount> ListAccounts()
@@ -465,10 +596,10 @@ namespace NBitcoin.RPC
 		/// Lists accounts and their balances, based on the specified number of confirmations.
 		/// </summary>
 		/// <param name="confirmations">
-		/// The minimum number of confirmations an externally-generated transaction must have before 
-		/// it is counted towards the balance. Transactions generated by this node are counted immediately. 
-		/// Typically, externally-generated transactions are payments to this wallet and transactions 
-		/// generated by this node are payments to other wallets. Use 0 to count unconfirmed transactions. 
+		/// The minimum number of confirmations an externally-generated transaction must have before
+		/// it is counted towards the balance. Transactions generated by this node are counted immediately.
+		/// Typically, externally-generated transactions are payments to this wallet and transactions
+		/// generated by this node are payments to other wallets. Use 0 to count unconfirmed transactions.
 		/// Default is 1.
 		/// </param>
 		/// <returns>
@@ -481,19 +612,19 @@ namespace NBitcoin.RPC
 		}
 
 		/// <summary>
-		/// Lists accounts and their balances, based on the specified number of confirmations, 
+		/// Lists accounts and their balances, based on the specified number of confirmations,
 		/// and including watch only accounts if specified. (Added in Bitcoin Core 0.10.0)
 		/// </summary>
 		/// <param name="confirmations">
-		/// The minimum number of confirmations an externally-generated transaction must have before 
-		/// it is counted towards the balance. Transactions generated by this node are counted immediately. 
-		/// Typically, externally-generated transactions are payments to this wallet and transactions 
-		/// generated by this node are payments to other wallets. Use 0 to count unconfirmed transactions. 
+		/// The minimum number of confirmations an externally-generated transaction must have before
+		/// it is counted towards the balance. Transactions generated by this node are counted immediately.
+		/// Typically, externally-generated transactions are payments to this wallet and transactions
+		/// generated by this node are payments to other wallets. Use 0 to count unconfirmed transactions.
 		/// Default is 1.
 		/// </param>
 		/// <param name="includeWatchOnly">
-		/// If set to true, include watch-only addresses in details and calculations as if they were 
-		/// regular addresses belonging to the wallet. If set to false (the default), treat watch-only 
+		/// If set to true, include watch-only addresses in details and calculations as if they were
+		/// regular addresses belonging to the wallet. If set to false (the default), treat watch-only
 		/// addresses as if they didn’t belong to this wallet.
 		/// </param>
 		/// <returns>
@@ -560,11 +691,11 @@ namespace NBitcoin.RPC
 		// listunspent
 
 		/// <summary>
-		/// Returns an array of unspent transaction outputs belonging to this wallet. 
+		/// Returns an array of unspent transaction outputs belonging to this wallet.
 		/// </summary>
 		/// <remarks>
 		/// <para>
-		/// Note: as of Bitcoin Core 0.10.0, outputs affecting watch-only addresses will be returned; 
+		/// Note: as of Bitcoin Core 0.10.0, outputs affecting watch-only addresses will be returned;
 		/// see the spendable field in the results.
 		/// </para>
 		/// </remarks>
@@ -577,7 +708,7 @@ namespace NBitcoin.RPC
 		/// <summary>
 		/// Returns an array of unspent transaction outputs belonging to this wallet,
 		/// specifying the minimum and maximum number of confirmations to include,
-		/// and the list of addresses to include. 
+		/// and the list of addresses to include.
 		/// </summary>
 		public UnspentCoin[] ListUnspent(int minconf, int maxconf, params BitcoinAddress[] addresses)
 		{
@@ -587,7 +718,7 @@ namespace NBitcoin.RPC
 		}
 
 		/// <summary>
-		/// Returns an array of unspent transaction outputs belonging to this wallet. 
+		/// Returns an array of unspent transaction outputs belonging to this wallet.
 		/// </summary>
 		public async Task<UnspentCoin[]> ListUnspentAsync()
 		{
@@ -598,7 +729,7 @@ namespace NBitcoin.RPC
 		/// <summary>
 		/// Returns an array of unspent transaction outputs belonging to this wallet,
 		/// specifying the minimum and maximum number of confirmations to include,
-		/// and the list of addresses to include. 
+		/// and the list of addresses to include.
 		/// </summary>
 		public async Task<UnspentCoin[]> ListUnspentAsync(int minconf, int maxconf, params BitcoinAddress[] addresses)
 		{
@@ -609,7 +740,7 @@ namespace NBitcoin.RPC
 
 		/// <summary>
 		/// Returns an array of unspent transaction outputs belonging to this wallet,
-		/// with query_options and the list of addresses to include. 
+		/// with query_options and the list of addresses to include.
 		/// </summary>
 		/// <param name="options">
 		/// MinimumAmount - Minimum value of each UTXO
@@ -660,6 +791,32 @@ namespace NBitcoin.RPC
 		public OutPoint[] ListLockUnspent()
 		{
 			return ListLockUnspentAsync().GetAwaiter().GetResult();
+		}
+
+		// abandon transaction
+
+		/// <summary>
+		/// Marks a transaction and all its in-wallet descendants as abandoned which will allow
+		/// for their inputs to be respent.
+		/// </summary>
+		/// <param name="txId">the transaction id to be marked as abandoned.</param>
+		public void AbandonTransaction(uint256 txId)
+		{
+			if (txId is null) throw new ArgumentNullException(nameof(txId));
+
+			SendCommand(RPCOperations.abandontransaction, txId.ToString());
+		}
+
+		/// <summary>
+		/// Marks a transaction and all its in-wallet descendants as abandoned which will allow
+		/// for their inputs to be respent.
+		/// </summary>
+		/// <param name="txId">the transaction id to be marked as abandoned.</param>
+		public async Task AbandonTransactionAsync(uint256 txId)
+		{
+			if (txId is null) throw new ArgumentNullException(nameof(txId));
+
+			await SendCommandAsync(RPCOperations.abandontransaction, txId.ToString()).ConfigureAwait(false);
 		}
 
 

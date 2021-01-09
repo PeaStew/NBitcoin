@@ -1,6 +1,7 @@
 #if !NOJSONNET
 using System;
 using System.Collections.Generic;
+using NBitcoin.Scripting;
 using Newtonsoft.Json.Linq;
 
 namespace NBitcoin.RPC
@@ -9,7 +10,13 @@ namespace NBitcoin.RPC
 	{
 		public bool IsMine { get; private set; }
 		public bool? Solvable { get; private set; }
+
+		[Obsolete("Use Descriptor field instead")]
 		public ScanTxoutDescriptor Desc { get; private set; }
+
+# nullable enable
+		public OutputDescriptor? Descriptor { get; private set; }
+#nullable disable
 
 		// present only in p2sh-nested case
 		public GetAddressInfoScriptInfoResponse Embedded { get; private set; }
@@ -20,6 +27,8 @@ namespace NBitcoin.RPC
 		public KeyPath HDKeyPath { get; private set; }
 		public uint160 HDSeedID { get; private set; }
 		public uint160 HDMasterKeyID { get; private set; }
+
+		[Obsolete("Bitcoin Core 0.20.0 obsolated this.")]
 		public List<Dictionary<string, string>> Labels { get; private set; } = new List<Dictionary<string, string>>();
 
 		public bool? IsCompressed { get; private set; }
@@ -33,7 +42,12 @@ namespace NBitcoin.RPC
 			SetSubInfo(this, raw, network);
 			IsMine = raw.Property("ismine").Value.Value<bool>();
 			Solvable = raw.Property("solvable")?.Value.Value<bool>();
+#pragma warning disable 618
 			Desc = raw.Property("desc") == null ? null : new ScanTxoutDescriptor(raw.Property("desc").Value.Value<string>());
+#pragma warning restore 618
+			Descriptor = raw.Property("desc") == null
+				? null
+				: OutputDescriptor.Parse(raw.Property("desc").Value.Value<string>());
 			IsWatchOnly = raw.Property("iswatchonly").Value.Value<bool>();
 			IsScript = raw.Property("isscript").Value.Value<bool>();
 			IsWitness = raw.Property("iswitness").Value.Value<bool>();
@@ -58,9 +72,14 @@ namespace NBitcoin.RPC
 			if (jlabels != null)
 			{
 				var labelObjects = jlabels.Value.Value<JArray>();
-				foreach (var jObj in labelObjects)
+				foreach (var jToken in labelObjects)
 				{
-					Labels.Add(((JObject)jObj).ToObject<Dictionary<string, string>>());
+					if (jToken is JObject jObject) // Before Bitcoin Core 0.20.0
+					{
+#pragma warning disable CS0618 // Type or member is obsolete.
+						Labels.Add(jToken.ToObject<Dictionary<string, string>>());
+#pragma warning restore CS0618 // Type or member is obsolete
+					}
 				}
 			}
 

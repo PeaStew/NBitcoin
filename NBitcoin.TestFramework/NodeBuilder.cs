@@ -100,6 +100,11 @@ namespace NBitcoin.Tests
 		}
 		public string RegtestFolderName { get; set; }
 
+		public bool CreateWallet
+		{
+			get; set;
+		}
+
 		/// <summary>
 		/// For blockchains that use an arbitrary chain (e.g. instead of main, testnet and regtest
 		/// Elements can use chain=elementsregtest).
@@ -281,7 +286,7 @@ namespace NBitcoin.Tests
 			_State = CoreNodeState.Stopped;
 
 			dataDir = Path.Combine(folder, "data");
-			var pass = Hashes.Hash256(Encoding.UTF8.GetBytes(folder)).ToString();
+			var pass = Hashes.DoubleSHA256(Encoding.UTF8.GetBytes(folder)).ToString();
 			creds = new NetworkCredential(pass, pass);
 			_Config = Path.Combine(dataDir, "bitcoin.conf");
 			ConfigParameters.Import(builder.ConfigParameters, true);
@@ -404,7 +409,22 @@ namespace NBitcoin.Tests
 			StartAsync().Wait();
 		}
 
-		readonly NetworkCredential creds;
+		NetworkCredential creds;
+		public NetworkCredential RPCCredentials
+		{
+			get
+			{
+				if (CookieAuth)
+					throw new InvalidOperationException("CookieAuth should be false");
+				return creds;
+			}
+			set
+			{
+				if (CookieAuth)
+					throw new InvalidOperationException("CookieAuth should be false");
+				creds = value;
+			}
+		}
 		public RPCClient CreateRPCClient()
 		{
 			return new RPCClient(GetRPCAuth(), RPCUri, Network);
@@ -485,11 +505,15 @@ namespace NBitcoin.Tests
 					configStr.AppendLine($"[{NodeImplementation.Chain}]");
 				}
 			}
+			if (NodeImplementation.CreateWallet)
+				config.Add("wallet", "wallet.dat");
+
 			config.Add("rest", "1");
 			config.Add("server", "1");
 			config.Add("txindex", "1");
 			config.Add("peerbloomfilters", "1");
-			config.Add("blockfilterindex", "1");
+			// Somehow got problems on windows with it time to time...
+			//config.Add("blockfilterindex", "1");
 			if (!CookieAuth)
 			{
 				config.Add("rpcuser", creds.UserName);
@@ -502,11 +526,13 @@ namespace NBitcoin.Tests
 			config.Add("rpcport", ports[1].ToString());
 			config.Add("printtoconsole", _Builder.ShowNodeConsole ? "1" : "0");
 			config.Add("keypool", "10");
+			config.Add("fallbackfee", "0.0002"); // https://github.com/bitcoin/bitcoin/pull/16524
 			config.Import(ConfigParameters, true);
 			configStr.AppendLine(config.ToString());
 			if (NodeImplementation.AdditionalRegtestConfig != null)
 				configStr.AppendLine(NodeImplementation.AdditionalRegtestConfig);
 			File.WriteAllText(_Config, configStr.ToString());
+			
 			await Run();
 		}
 
@@ -514,6 +540,9 @@ namespace NBitcoin.Tests
 		{
 			lock (l)
 			{
+				if (_Builder.NodeImplementation.CreateWallet)
+					CreateDefaultWallet();
+
 				string appPath = new FileInfo(this._Builder.BitcoinD).FullName;
 				string args = "-conf=bitcoin.conf" + " -datadir=" + dataDir + " -debug=net";
 
@@ -544,6 +573,25 @@ namespace NBitcoin.Tests
 			}
 		}
 
+		private void CreateDefaultWallet()
+		{
+			var walletToolPath = Path.Combine(Path.GetDirectoryName(this._Builder.BitcoinD), "bitcoin-wallet");
+			string walletToolArgs = $"-regtest -wallet=\"wallet.dat\" -datadir=\"{dataDir}\" create";
+
+			var info = new ProcessStartInfo(walletToolPath, walletToolArgs)
+			{
+				UseShellExecute = _Builder.ShowNodeConsole
+			};
+			if (!_Builder.ShowNodeConsole)
+			{
+				info.RedirectStandardError = true;
+				info.RedirectStandardOutput = true;
+			}
+			using (var walletToolProcess = Process.Start(info))
+			{ 
+				walletToolProcess.WaitForExit();
+			}
+		}
 
 		Process _Process;
 		private readonly string dataDir;
@@ -640,55 +688,6 @@ namespace NBitcoin.Tests
 			public uint256 Hash = null;
 			public Transaction Transaction = null;
 			public List<TransactionNode> DependsOn = new List<TransactionNode>();
-		}
-
-		private List<Transaction> Reorder(List<Transaction> transactions)
-		{
-			if (transactions.Count == 0)
-				return transactions;
-			var result = new List<Transaction>();
-			var dictionary = transactions.ToDictionary(t => t.GetHash(), t => new TransactionNode(t));
-			foreach (var transaction in dictionary.Select(d => d.Value))
-			{
-				foreach (var input in transaction.Transaction.Inputs)
-				{
-					var node = dictionary.TryGet(input.PrevOut.Hash);
-					if (node != null)
-					{
-						transaction.DependsOn.Add(node);
-					}
-				}
-			}
-			while (dictionary.Count != 0)
-			{
-				foreach (var node in dictionary.Select(d => d.Value).ToList())
-				{
-					foreach (var parent in node.DependsOn.ToList())
-					{
-						if (!dictionary.ContainsKey(parent.Hash))
-							node.DependsOn.Remove(parent);
-					}
-					if (node.DependsOn.Count == 0)
-					{
-						result.Add(node.Transaction);
-						dictionary.Remove(node.Hash);
-					}
-				}
-			}
-			return result;
-		}
-
-		private BitcoinSecret GetFirstSecret(RPCClient rpc)
-		{
-			if (MinerSecret != null)
-				return MinerSecret;
-			var dest = rpc.ListSecrets().FirstOrDefault();
-			if (dest == null)
-			{
-				var address = rpc.GetNewAddress();
-				dest = rpc.DumpPrivKey(address);
-			}
-			return dest;
 		}
 
 		public void Restart()

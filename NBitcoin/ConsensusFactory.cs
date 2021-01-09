@@ -94,7 +94,8 @@ namespace NBitcoin
 				SupportWitness = protocolVersion >= 70012U,
 				SupportCompactBlocks = protocolVersion >= 70014U,
 				SupportCheckSum = protocolVersion >= 60002,
-				SupportUserAgent = protocolVersion >= 60002
+				SupportUserAgent = protocolVersion >= 60002,
+				SupportAddrv2 = protocolVersion >= 70016U,
 			};
 		}
 
@@ -114,30 +115,22 @@ namespace NBitcoin
 
 		public virtual Transaction CreateTransaction()
 		{
-#pragma warning disable CS0618 // Type or member is obsolete
 			return new Transaction();
-#pragma warning restore CS0618 // Type or member is obsolete
 		}
 
 		public virtual TxIn CreateTxIn()
 		{
-#pragma warning disable CS0618 // Type or member is obsolete
 			return new TxIn();
-#pragma warning restore CS0618 // Type or member is obsolete
 		}
 
 		public virtual TxOut CreateTxOut()
 		{
-#pragma warning disable CS0618 // Type or member is obsolete
 			return new TxOut();
-#pragma warning restore CS0618 // Type or member is obsolete
 		}
 
 		protected virtual TransactionBuilder CreateTransactionBuilderCore(Network network)
 		{
-#pragma warning disable CS0618 // Type or member is obsolete
 			return new TransactionBuilder(network);
-#pragma warning restore CS0618 // Type or member is obsolete
 		}
 
 		internal TransactionBuilder CreateTransactionBuilderCore2(Network network)

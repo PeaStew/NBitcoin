@@ -112,19 +112,31 @@ namespace NBitcoin
 			var nonhardened = hardened ? i.Substring(0, i.Length - 1) : i;
 			if (!uint.TryParse(nonhardened, out index))
 				return false;
+
+			// when parsing, number equals or greater than 0x80000000 (= 2147483648) should not be allowed.
+			if (index >= 0x80000000u)
+			{
+				index = 0;
+				return false;
+			}
 			if (hardened)
 			{
-				if (index >= 0x80000000u)
-				{
-					index = 0;
-					return false;
-				}
 				index = index | 0x80000000u;
 				return true;
 			}
 			else
 			{
 				return true;
+			}
+		}
+
+		static KeyPath _Empty = new KeyPath(new uint[0]);
+
+		public static KeyPath Empty
+		{
+			get
+			{
+				return _Empty;
 			}
 		}
 
@@ -197,10 +209,10 @@ namespace NBitcoin
 			}
 		}
 
-		public KeyPath? Increment()
+		public KeyPath Increment()
 		{
 			if (_Indexes.Length == 0)
-				return null;
+				throw new InvalidOperationException("Cannot increment an empty keypath");
 			var indices = _Indexes.ToArray();
 			indices[indices.Length - 1]++;
 			return new KeyPath(indices);
@@ -212,16 +224,18 @@ namespace NBitcoin
 				return _Indexes.Length == k._Indexes.Length && _Indexes.SequenceEqual(k._Indexes);
 			return false;
 		}
-		public static bool operator ==(KeyPath a, KeyPath b)
+		public static bool operator ==(KeyPath? a, KeyPath? b)
 		{
 			if (ReferenceEquals(a, b))
 				return true;
-			if (((object)a == null) || ((object)b == null))
+			if (a is null && b is null)
+				return true;
+			if (a is null || b is null)
 				return false;
 			return a.ToString() == b.ToString();
 		}
 
-		public static KeyPath? operator +(KeyPath a, KeyPath b)
+		public static KeyPath? operator +(KeyPath? a, KeyPath? b)
 		{
 			if (a is null && !(b is null))
 				return b;
